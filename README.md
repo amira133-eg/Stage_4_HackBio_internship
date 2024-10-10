@@ -1,6 +1,6 @@
 # Gene Ontology Enrichment Analysis Shiny App
 # **Authors** 
-(@slack):Amira Mahmoud Mohamed (amira\\mahmoud\\4463)
+(@slack):Amira Mahmoud Mohamed (amira_mahmoud_4463)
 
 Manar Tarek (ManarTj)
 
