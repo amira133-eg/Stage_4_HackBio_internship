@@ -1,7 +1,9 @@
 # Gene Ontology Enrichment Analysis Shiny App
 م
 ## Overview
-This Shiny app performs **Gene Ontology (GO) enrichment analysis** for a set of genes known to be upregulated in cancer. It allows users to either use a predefined set of genes or upload their own gene list. The app utilizes the **TCGAanalyze_EAcomplete()** and **TCGAvisualize_EAbarplot()** functions from the `TCGAbiolinks` package to perform the analysis and display a bar plot of enriched GO terms.
+This Shiny app performs **Gene Ontology (GO) enrichment analysis** for a set of genes known to be upregulated in cancer. It allows users to either use a predefined set of genes or upload their own gene list. The app utilizes the **TCGAanalyze_EAcomplete()** and **TCGAvisualize_EAbarplot()** functions from the `TCGAbiolinks` package to perform the analysis and display a bar plot of enriched GO terms
+
+
 app. link:[ Enrichment Analysis](https://enrichmentanalysis.shinyapps.io/TCGAapp/)
 ---
 
