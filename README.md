@@ -9,7 +9,7 @@ Noran Morad (NoranMorad)
 This Shiny app performs **Gene Ontology (GO) enrichment analysis** for a set of genes known to be upregulated in cancer. It allows users to either use a predefined set of genes or upload their own gene list. The app utilizes the **TCGAanalyze_EAcomplete()** and **TCGAvisualize_EAbarplot()** functions from the `TCGAbiolinks` package to perform the analysis and display a bar plot of enriched GO terms
 
 
-app. link:[ Enrichment Analysis](https://enrichmentanalysis.shinyapps.io/TCGAapp/)
+app. link:[ Enrichment Analysis](https://enrichmentanalysis.shinyapps.io/enrichmentgo/)
 ---
 
 ## Instructions on How to Use the App
@@ -41,129 +41,236 @@ app. link:[ Enrichment Analysis](https://enrichmentanalysis.shinyapps.io/TCGAapp
 ## Code Explanation
 			
 # Load necessary libraries for building the Shiny app and performing gene analysis
-      library(shiny)        # Main library for creating Shiny web applications
-      library(TCGAbiolinks) # Library to perform cancer genomics analysis using TCGA data
-      library(org.Hs.eg.db) # Annotation package for human gene data
-      library(AnnotationDbi)# Interface for querying gene annotations
-     library(rsconnect)    # Library for deploying Shiny applications
-     library(BiocManager)  # Bioconductor package management
+     library(shiny)           # For creating the interactive web application
+     library(org.Hs.eg.db)     # Human gene annotations, including Entrez IDs and gene symbols
+     library(AnnotationDbi)    # Provides functions for mapping gene IDs (e.g., SYMBOL to ENTREZID)
+     library(clusterProfiler)  # For gene set enrichment analysis, including GO and KEGG pathways
+     library(enrichplot)       # For visualizing the results of enrichment analysis
+     library(DT)              # For creating interactive tables (DataTables)
+
 
 # List of predefined genes (gene symbols) commonly associated with cancer
-     predefined_genes <- c(
-      "TP53", "BRCA1", "BRCA2", "PIK3CA", "PTEN", "CDH1", "AKT1", "EGFR", "RB1", "ERBB2",
-      "CCND1", "CDK4", "VEGFA", "ESR1", "MYC", "MDM2", "AR", "KRAS", "NRAS", "JUN",
-    # (additional genes in the list) ...
-     "HSP90AA1", "HSPB1", "GSTM1", "TP73"
-     )
+       example_gene_list <- c("TP53", "BRCA1", "BRCA2", "PIK3CA", "PTEN", "CDH1", "AKT1", 
+                       "EGFR", "RB1", "ERBB2", "CCND1", "CDK4", "VEGFA", "ESR1", 
+                       "MYC", "MDM2", "AR", "KRAS", "NRAS", "JUN")
 
-# Function to convert gene symbols (or other types of IDs) into Entrez IDs using org.Hs.eg.db
-    convert_to_entrez <- function(gene_list, id_type = "SYMBOL") {
-     entrez_ids <- AnnotationDbi::mapIds(
-    org.Hs.eg.db, keys = gene_list, column = "ENTREZID", 
-    keytype = id_type, multiVals = "first"
-     )
-        entrez_ids <- na.omit(entrez_ids)  # Remove any entries with NA values
-     as.character(entrez_ids)           # Return Entrez IDs as character vectors
+# Function to convert gene symbols to Entrez IDs (used in enrichment analysis)
+# gene_list: List of gene symbols or IDs
+# id_type: Type of ID provided (e.g., SYMBOL or ENSEMBL)
+     convert_to_entrez <- function(gene_list, id_type = "SYMBOL") {
+     if (length(gene_list) > 0) {
+    entrez_ids <- AnnotationDbi::mapIds(
+      org.Hs.eg.db, keys = gene_list, column = "ENTREZID", 
+      keytype = id_type, multiVals = "first"  # Map each gene symbol to its Entrez ID
+    )
+    na.omit(as.character(entrez_ids))  # Remove any NA entries (unmapped genes)
+    } else {
+    character(0)  # Return empty if no genes are provided
+    }
     }
 
+
 # Define the UI (user interface) for the Shiny app
-     ui <- fluidPage(
-    titlePanel("Gene Ontology Enrichment Analysis"),  # Title of the app
+       ui <- fluidPage(
+     titlePanel("Gene Ontology and Pathway Enrichment Analysis"),  # App title
   
-     # Tabs for navigating different parts of the app
-    tabsetPanel(
-    # Instructions tab explaining how to use the app
-    tabPanel("Instructions",
+     # Tabs to organize content: Guide, Analysis, and Results
+     tabsetPanel(
+    tabPanel("Guide",  # First tab explains how to use the app
              h3("How to Use This App"),
-             p("This app performs Gene Ontology (GO) enrichment analysis for a set of genes..."),
-             h4("Steps to Use"),
-             p("1. In the 'Analysis' tab, select..."),
-             tags$ul(
-               tags$li("Enter your gene list in a comma-separated format..."),
-               # More details on how to enter and format genes
-             )
+             p("This app performs Gene Ontology (GO) and KEGG Pathway enrichment analysis for a set of genes."),
+             p("Users can analyze the predefined gene list or enter their own list."),
+             h4("Steps to Use"),  # Step-by-step instructions for users
+             tags$ol(
+               tags$li("Go to the 'Analysis' tab and select 'Example Gene List' or 'Custom Gene List'."),
+               tags$li("If using a custom list, enter your gene symbols or Ensembl IDs, separated by commas."),
+               tags$li("Select the type of ID (Gene Symbol or Ensembl ID) from the dropdown."),
+               tags$li("Click 'Run Enrichment Analysis' to see the results in the 'Results' tab.")
+             ),
+             h4("Expected Output"),  # Description of the expected results
+             p("The results include bar plots for the top 10 enriched GO terms in each ontology: Biological Process, Molecular Function, and Cellular Component."),
+             p("Additionally, KEGG pathway enrichment results are visualized and provided in interactive tables.")
     ),
     
-    # Analysis tab where users input gene lists and run analysis
+    # Tab for performing the analysis
     tabPanel("Analysis",
              sidebarLayout(
                sidebarPanel(
-                 h4("Choose Analysis Parameters"),
-                 # Radio buttons to choose between predefined or custom gene list
-                 radioButtons("geneSource", "Gene List Source", choices = c("Predefined Gene List", "Upload My Genes")),
-                 # Conditional input for custom gene list and type of gene IDs
+                 h4("Parameters"),
+                 radioButtons("geneSource", "Gene List Source", choices = c("Example Gene List", "Custom Gene List")),  # Choose between example or custom genes
                  conditionalPanel(
-                   condition = "input.geneSource == 'Upload My Genes'",
-                   textAreaInput("customGenes", "Enter Your Gene List (comma-separated)", placeholder = "e.g., BRCA1, TP53, MYC"),
-                   selectInput("idType", "ID Type", choices = c("Gene Symbol" = "SYMBOL", "Ensembl ID" = "ENSEMBL"))
+                   condition = "input.geneSource == 'Custom Gene List'",
+                   textAreaInput("customGenes", "Enter Your Gene List (comma-separated)", 
+                                 placeholder = "e.g., TP53, BRCA1, MYC"),  # Input box for custom gene list
+                   selectInput("idType", "ID Type", choices = c("Gene Symbol" = "SYMBOL", "Ensembl ID" = "ENSEMBL"))  # Select the ID type
                  ),
-                 # Dropdown to choose ontology type
-                 selectInput("ontology", "Choose Ontology", choices = c("Biological Process" = "BP", "Cellular Component" = "CC", "Molecular Function" = "MF")),
-                 actionButton("analyze", "Run Enrichment Analysis"),  # Button to run analysis
-                 br()
+                 actionButton("analyze", "Run Enrichment Analysis"),  # Button to start the analysis
+                 br(), br(),
+                 p("Note: Enrichment analysis may take a few seconds to complete.")
                ),
                mainPanel(
                  h4("Note"),
-                 p("After clicking 'Run Enrichment Analysis', the bar plot will display in the 'Results' tab.")
+                 p("The results will be displayed in the 'Results' tab once analysis is complete.")  # Instructional text
                )
              )
     ),
     
-    # Results tab to display the output of the enrichment analysis as a bar plot
+    # Results tab with multiple sub-tabs for visualizing GO and KEGG results
     tabPanel("Results",
              h4("Enrichment Analysis Results"),
-             plotOutput("barPlot")  # Area for showing the bar plot
+             tabsetPanel(
+               tabPanel("GO Plots",  # Sub-tab for GO enrichment plots
+                        h5("Biological Process"),
+                        plotOutput("plot_BP"),  # Plot for biological process
+                        h5("Molecular Function"),
+                        plotOutput("plot_MF"),  # Plot for molecular function
+                        h5("Cellular Component"),
+                        plotOutput("plot_CC")   # Plot for cellular component
+               ),
+               tabPanel("Pathway Plots",  # Sub-tab for KEGG pathway plots
+                        h5("KEGG Pathway Enrichment"),
+                        plotOutput("plot_KEGG")  # Plot for KEGG pathway enrichment
+               ),
+               tabPanel("GO Tables",  # Sub-tab for GO enrichment tables
+                        h5("Biological Process"),
+                        DTOutput("table_BP"),   # Table for biological process results
+                        h5("Molecular Function"),
+                        DTOutput("table_MF"),   # Table for molecular function results
+                        h5("Cellular Component"),
+                        DTOutput("table_CC")    # Table for cellular component results
+               ),
+               tabPanel("Pathway Table",  # Sub-tab for KEGG pathway tables
+                        h5("KEGG Pathway Enrichment"),
+                        DTOutput("table_KEGG")  # Table for KEGG pathway results
+               )
+             )
     )
     )
-    ) 
+    )
+
  
 # Server logic to handle user inputs and perform the analysis
-    server <- function(input, output) {
+        server <- function(input, output) {
+     # Create reactive values to store enrichment results
+    enrichment_results <- reactiveValues(
+    enriched_go_BP = NULL,
+    enriched_go_MF = NULL,
+    enriched_go_CC = NULL,
+    enriched_KEGG = NULL
+    )
   
-    # Event listener for the 'analyze' button
+    # Observe the event when the "analyze" button is clicked
     observeEvent(input$analyze, {
-    # Decide whether to use predefined or custom genes
-    gene_list <- if (input$geneSource == "Predefined Gene List") {
-      predefined_genes
+    
+    # Get the gene list based on user input
+    gene_list <- if (input$geneSource == "Example Gene List") {
+      example_gene_list  # Use the predefined gene list
     } else {
-      strsplit(input$customGenes, ",\\s*")[[1]]  # Split custom gene list by commas
+      # Get the user-provided gene list, split it by commas, and clean it up
+      genes_input <- unlist(strsplit(input$customGenes, ",\\s*"))
+      genes_input[genes_input != ""]  # Remove any empty entries
     }
     
-    # Convert the gene list to Entrez IDs
+    # Convert the gene list to Entrez IDs (needed for enrichment analysis)
     entrez_ids <- convert_to_entrez(gene_list, id_type = input$idType)
     
-    # If no valid Entrez IDs, show a message
+    # Show a message if no valid Entrez IDs are found
     if (length(entrez_ids) == 0) {
-      output$barPlot <- renderPlot({
-        plot.new()
-        title("No valid Entrez IDs found. Please check your input.")
-      })
+      showModal(modalDialog(
+        title = "No valid Entrez IDs found",
+        "Please check your input and ensure you selected the correct ID type."
+      ))
       return()
     }
     
-    # Perform enrichment analysis using the TCGA functions
-    enrichment_results <- TCGAanalyze_EAcomplete(
-      TFname = "Breast Cancer Analysis",
-      RegulonList = list(entrez_ids)
-    )
+    # Perform GO enrichment analysis for each ontology (BP, MF, CC)
+    enrichment_results$enriched_go_BP <- enrichGO(gene = entrez_ids, 
+                                                  OrgDb = org.Hs.eg.db, 
+                                                  ont = "BP",  # Biological Process
+                                                  pAdjustMethod = "BH",  # Adjust p-values
+                                                  pvalueCutoff = 0.05, 
+                                                  qvalueCutoff = 0.2, 
+                                                  readable = TRUE)  # Convert IDs to gene symbols for readability
+    enrichment_results$enriched_go_MF <- enrichGO(gene = entrez_ids, 
+                                                  OrgDb = org.Hs.eg.db, 
+                                                  ont = "MF",  # Molecular Function
+                                                  pAdjustMethod = "BH", 
+                                                  pvalueCutoff = 0.05, 
+                                                  qvalueCutoff = 0.2, 
+                                                  readable = TRUE)
+    enrichment_results$enriched_go_CC <- enrichGO(gene = entrez_ids, 
+                                                  OrgDb = org.Hs.eg.db, 
+                                                  ont = "CC",  # Cellular Component
+                                                  pAdjustMethod = "BH", 
+                                                  pvalueCutoff = 0.05, 
+                                                  qvalueCutoff = 0.2, 
+                                                  readable = TRUE)
     
-    # Display the enrichment results in a bar plot
-    output$barPlot <- renderPlot({
-      ontology_result <- switch(input$ontology,
-                                BP = enrichment_results$ResBP,
-                                CC = enrichment_results$ResCC,
-                                MF = enrichment_results$ResMF)
-      
-      if (!is.null(ontology_result) && nrow(ontology_result) > 0 && !any(is.na(ontology_result))) {
-        # Visualize the top 10 GO terms
-        TCGAvisualize_EAbarplot(GOBPTab = ontology_result, nBar = 10, color = "skyblue")
-      } else {
-        plot.new()
-        title("No Enrichment Results Found")
-      }
-    })
+    # Perform KEGG pathway enrichment analysis
+    enrichment_results$enriched_KEGG <- enrichKEGG(gene = entrez_ids, 
+                                                   organism = 'hsa',  # Human organism ('hsa')
+                                                   pAdjustMethod = "BH", 
+                                                   pvalueCutoff = 0.05, 
+                                                   qvalueCutoff = 0.2)
+    
+     })  # Close the observeEvent for the analyze button
+  
+    # Render the GO Biological Process plot
+     output$plot_BP <- renderPlot({
+     req(enrichment_results$enriched_go_BP)  # Wait for the results
+     if (nrow(enrichment_results$enriched_go_BP@result) > 0) {
+       barplot(enrichment_results$enriched_go_BP, showCategory = 10, title = "Biological Process")  # Plot the top 10 GO terms
+    }
      })
-     }
+  
+    # Render the GO Molecular Function plot
+     output$plot_MF <- renderPlot({
+    req(enrichment_results$enriched_go_MF)
+    if (nrow(enrichment_results$enriched_go_MF@result) > 0) {
+      barplot(enrichment_results$enriched_go_MF, showCategory = 10, title = "Molecular Function")
+    }
+    })
+  
+    # Render the GO Cellular Component plot
+     output$plot_CC <- renderPlot({
+    req(enrichment_results$enriched_go_CC)
+    if (nrow(enrichment_results$enriched_go_CC@result) > 0) {
+      barplot(enrichment_results$enriched_go_CC, showCategory = 10, title = "Cellular Component")
+    }
+    })
+  
+    # Render the KEGG Pathway plot
+    output$plot_KEGG <- renderPlot({
+    req(enrichment_results$enriched_KEGG)
+    if (nrow(enrichment_results$enriched_KEGG@result) > 0) {
+      barplot(enrichment_results$enriched_KEGG, showCategory = 10, title = "KEGG Pathway Enrichment")
+    }
+    })
+  
+     # Render the GO Biological Process table
+     output$table_BP <- renderDT({
+    req(enrichment_results$enriched_go_BP)
+    datatable(as.data.frame(enrichment_results$enriched_go_BP@result), options = list(pageLength = 5, autoWidth = TRUE))
+     })
+  
+    # Render the GO Molecular Function table
+     req(enrichment_results$enriched_go_MF)
+    datatable(as.data.frame(enrichment_results$enriched_go_MF@result), options = list(pageLength = 5, autoWidth = TRUE))
+    })
+   
+    # Render the GO Cellular Component table
+    output$table_CC <- renderDT({
+    req(enrichment_results$enriched_go_CC)
+    datatable(as.data.frame(enrichment_results$enriched_go_CC@result), options = list(pageLength = 5, autoWidth = TRUE))
+    })
+  
+    # Render the KEGG Pathway table
+    output$table_KEGG <- renderDT({
+    req(enrichment_results$enriched_KEGG)
+    datatable(as.data.frame(enrichment_results$enriched_KEGG@result), options = list(pageLength = 5, autoWidth = TRUE))
+    })
+  
+    }
 
 # Run the app
     shinyApp(ui = ui, server = server)
